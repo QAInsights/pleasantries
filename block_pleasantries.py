@@ -26,6 +26,64 @@ Supported CLIs and their hook config:
       }
     }
 
+  gemini  - ~/.gemini/settings.json (JSON)
+    {
+      "hooks": {
+        "BeforeAgent": [
+          { "matcher": "*", "hooks": [{ "type": "command",
+              "command": "python block_pleasantries.py gemini",
+              "timeout": 5000 }] }
+        ]
+      }
+    }
+
+  kiro  - .kiro/hooks/block-pleasantries.json (workspace-level)
+    {
+      "version": "v1",
+      "hooks": [{
+        "name": "block-pleasantries",
+        "trigger": "UserPromptSubmit",
+        "action": { "type": "command",
+          "command": "python block_pleasantries.py kiro" },
+        "timeout": 30, "enabled": true
+      }]
+    }
+
+  copilot-chat  - .github/hooks/pleasantries.json or ~/.copilot/hooks/
+    {
+      "version": 1,
+      "hooks": {
+        "UserPromptSubmit": [{
+          "type": "command",
+          "command": "python block_pleasantries.py copilot-chat",
+          "timeout": 5
+        }]
+      }
+    }
+
+  copilot-cli  - .github/hooks/pleasantries.json or ~/.copilot/hooks/
+    {
+      "version": 1,
+      "hooks": {
+        "userPromptSubmitted": [{
+          "type": "command",
+          "bash": "python block_pleasantries.py copilot-cli",
+          "timeoutSec": 5
+        }]
+      }
+    }
+
+  cursor  - .cursor/hooks.json or ~/.cursor/hooks.json
+    {
+      "version": 1,
+      "hooks": {
+        "beforeSubmitPrompt": [{
+          "command": "python block_pleasantries.py cursor",
+          "timeout": 5
+        }]
+      }
+    }
+
 Adding a new CLI:
   1. Write an extract function: _<cli>_extract(raw_stdin) -> prompt string
   2. Add an entry to ADAPTERS with the extract fn and the exit code that
@@ -87,17 +145,18 @@ def is_pleasantry(text: str) -> bool:
 #   block(msg)   -> None  : signal "block this prompt" to the CLI
 #
 # Blocking mechanisms differ per CLI:
-#   claude - exit code 2 + stderr message
-#   codex  - JSON stdout {"decision": "block", "reason": ...} + exit code 0
+#   exit-2 group  - stderr message + exit code 2 (claude, kiro, copilot-chat, copilot-cli)
+#   codex         - JSON stdout {"decision": "block", "reason": ...} + exit code 0
+#   gemini        - JSON stdout {"decision": "deny", "reason": ...} + exit code 0
 
 
 def _json_prompt_extract(raw: str) -> str:
-    """Extract prompt from JSON stdin. Used by Claude Code and Codex CLI."""
+    """Extract prompt from JSON stdin. Shared by all current adapters."""
     return json.loads(raw).get("prompt", "")
 
 
-def _claude_block(msg: str) -> None:
-    """Claude Code: stderr message + exit code 2."""
+def _exit2_block(msg: str) -> None:
+    """stderr message + exit code 2. Used by claude, kiro, copilot-chat, copilot-cli, cursor."""
     print(msg, file=sys.stderr)
     sys.exit(2)
 
@@ -108,14 +167,52 @@ def _codex_block(msg: str) -> None:
     sys.exit(0)
 
 
+def _gemini_block(msg: str) -> None:
+    """Gemini CLI: JSON deny on stdout + exit code 0."""
+    json.dump({"decision": "deny", "reason": msg}, sys.stdout)
+    sys.exit(0)
+
+
 ADAPTERS: dict[str, dict] = {
     "claude": {
         "extract": _json_prompt_extract,
-        "block": _claude_block,
+        "block": _exit2_block,
     },
     "codex": {
         "extract": _json_prompt_extract,
         "block": _codex_block,
+    },
+    "gemini": {
+        "extract": _json_prompt_extract,
+        "block": _gemini_block,
+    },
+    "kiro": {
+        "extract": _json_prompt_extract,
+        "block": _exit2_block,
+    },
+    "copilot-chat": {
+        "extract": _json_prompt_extract,
+        "block": _exit2_block,
+    },
+    "copilot-cli": {
+        "extract": _json_prompt_extract,
+        "block": _exit2_block,
+    },
+    "cursor": {
+        "extract": _json_prompt_extract,
+        "block": _exit2_block,
+    },
+    "factory-droid": {
+        "extract": _json_prompt_extract,
+        "block": _exit2_block,
+    },
+    "kimi-code": {
+        "extract": _json_prompt_extract,
+        "block": _exit2_block,
+    },
+    "devin": {
+        "extract": _json_prompt_extract,
+        "block": _exit2_block,
     },
 }
 

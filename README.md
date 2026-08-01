@@ -15,10 +15,11 @@ You type "fix auth bug" --> Hook reads prompt --> No match --> Prompt proceeds
 
 Each CLI has its own blocking mechanism:
 
-| CLI | Block method |
+| Block method | CLIs |
 |---|---|
-| Claude Code | stderr message + exit code 2 |
-| Codex CLI | JSON stdout `{"decision": "block", "reason": "..."}` + exit code 0 |
+| stderr + exit code 2 | Claude, Kiro, Copilot Chat, Copilot CLI, Cursor, Factory Droid, Kimi Code, Devin |
+| JSON `{"decision": "block"}` + exit 0 | Codex |
+| JSON `{"decision": "deny"}` + exit 0 | Gemini |
 
 The matcher normalizes input (lowercase, strip punctuation, collapse whitespace) and checks if the **entire** prompt is a pleasantry. Prompts that *contain* pleasantry words but include a real task pass through fine:
 
@@ -35,31 +36,35 @@ The matcher normalizes input (lowercase, strip punctuation, collapse whitespace)
 
 ## Supported CLIs
 
-| CLI | Hook Type | Config File | Status |
+| CLI | Hook Event | Config Location | Blocking |
 |---|---|---|---|
-| Claude Code | `UserPromptSubmit` | `~/.claude/settings.json` | Supported |
-| Codex CLI | `UserPromptSubmit` | `~/.codex/hooks.json` + `config.toml` | Supported |
-| More coming | - | - | Planned |
+| Claude Code | `UserPromptSubmit` | `~/.claude/settings.json` | exit 2 |
+| Codex CLI | `UserPromptSubmit` | `~/.codex/hooks.json` | JSON block |
+| Gemini CLI | `BeforeAgent` | `~/.gemini/settings.json` | JSON deny |
+| Kiro | `UserPromptSubmit` | `.kiro/hooks/*.json` | exit 2 |
+| Copilot Chat | `UserPromptSubmit` | `.github/hooks/*.json` | exit 2 |
+| Copilot CLI | `userPromptSubmitted` | `.github/hooks/*.json` | exit 2 |
+| Cursor | `beforeSubmitPrompt` | `.cursor/hooks.json` | exit 2 |
+| Factory Droid | `UserPromptSubmit` | `~/.factory/hooks.json` | exit 2 |
+| Kimi Code | `UserPromptSubmit` | `~/.kimi-code/config.toml` | exit 2 |
+| Devin CLI | `UserPromptSubmit` | `.devin/hooks.v1.json` | exit 2 |
+
+### Not supported (no hook system)
+
+CodeBuddy, OpenCode (archived), Aider, Kilo Code, Trae, Trae CN (unreleased), Hermes, Pi, OpenClaw, Amp (docs private), Google Antigravity (no prompt access in hooks), Agent Skills (not a specific tool).
 
 ## Installation
 
 ### Claude Code
 
-Add to `~/.claude/settings.json` (global) or `.claude/settings.json` (project-level):
-
+`~/.claude/settings.json`:
 ```json
 {
   "hooks": {
     "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 /path/to/block_pleasantries.py claude",
-            "timeout": 5
-          }
-        ]
-      }
+      { "hooks": [{ "type": "command",
+          "command": "python3 /path/to/block_pleasantries.py claude",
+          "timeout": 5 }] }
     ]
   }
 }
@@ -68,41 +73,127 @@ Add to `~/.claude/settings.json` (global) or `.claude/settings.json` (project-le
 ### Codex CLI
 
 **Step 1:** Enable hooks in `~/.codex/config.toml`:
-
 ```toml
 [features]
 hooks = true
 ```
 
 **Step 2:** Add to `~/.codex/hooks.json`:
-
 ```json
 {
   "hooks": {
     "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 /path/to/block_pleasantries.py codex",
-            "timeout": 5,
-            "statusMessage": "Checking prompt"
-          }
-        ]
-      }
+      { "hooks": [{ "type": "command",
+          "command": "python3 /path/to/block_pleasantries.py codex",
+          "timeout": 5, "statusMessage": "Checking prompt" }] }
     ]
   }
 }
 ```
 
-Replace `/path/to/` with the actual path to this repo.
+### Gemini CLI
 
-**Windows note:** Use `python` instead of `python3`, and add a `commandWindows` field with the full path to `python.exe`:
-
+`~/.gemini/settings.json`:
 ```json
-"command": "python C:/Users/you/gits/pleasantries/block_pleasantries.py codex",
-"commandWindows": "C:\\Users\\you\\scoop\\apps\\python\\current\\python.exe C:\\Users\\you\\gits\\pleasantries\\block_pleasantries.py codex"
+{
+  "hooks": {
+    "BeforeAgent": [
+      { "matcher": "*", "hooks": [{ "type": "command",
+          "command": "python3 /path/to/block_pleasantries.py gemini",
+          "timeout": 5000 }] }
+    ]
+  }
+}
 ```
+
+### Kiro
+
+`.kiro/hooks/block-pleasantries.json` (workspace-level):
+```json
+{
+  "version": "v1",
+  "hooks": [{
+    "name": "block-pleasantries",
+    "trigger": "UserPromptSubmit",
+    "action": { "type": "command",
+      "command": "python3 /path/to/block_pleasantries.py kiro" },
+    "timeout": 30, "enabled": true
+  }]
+}
+```
+
+### Cursor
+
+`.cursor/hooks.json` or `~/.cursor/hooks.json`:
+```json
+{
+  "version": 1,
+  "hooks": {
+    "beforeSubmitPrompt": [{
+      "command": "python3 /path/to/block_pleasantries.py cursor",
+      "timeout": 5
+    }]
+  }
+}
+```
+
+### VS Code Copilot Chat
+
+`.github/hooks/pleasantries.json` or `~/.copilot/hooks/`:
+```json
+{
+  "version": 1,
+  "hooks": {
+    "UserPromptSubmit": [{
+      "type": "command",
+      "command": "python3 /path/to/block_pleasantries.py copilot-chat",
+      "timeout": 5
+    }]
+  }
+}
+```
+
+### Factory Droid
+
+`~/.factory/hooks.json` or `.factory/hooks.json`:
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command",
+          "command": "python3 /path/to/block_pleasantries.py factory-droid",
+          "timeout": 5 }] }
+    ]
+  }
+}
+```
+
+### Kimi Code
+
+`~/.kimi-code/config.toml`:
+```toml
+[[hooks]]
+event = "UserPromptSubmit"
+command = "python3 /path/to/block_pleasantries.py kimi-code"
+timeout = 5
+```
+
+### Devin CLI
+
+`.devin/hooks.v1.json`:
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command",
+          "command": "python3 /path/to/block_pleasantries.py devin",
+          "timeout": 5 }] }
+    ]
+  }
+}
+```
+
+Replace `/path/to/` with the actual path to this repo. Use `python` instead of `python3` on Windows.
 
 ### Requirements
 
@@ -111,8 +202,6 @@ Replace `/path/to/` with the actual path to this repo.
 - Works on macOS, Linux, and Windows
 
 ## Multi-CLI Architecture
-
-The script separates core matching logic from CLI-specific I/O:
 
 ```
 block_pleasantries.py
@@ -123,28 +212,25 @@ block_pleasantries.py
 |
 +-- CLI adapters
 |   +-- _json_prompt_extract()   - shared JSON stdin parser
-|   +-- _claude_block()          - stderr + exit code 2
-|   +-- _codex_block()           - JSON stdout decision + exit code 0
+|   +-- _exit2_block()           - stderr + exit code 2 (8 CLIs)
+|   +-- _codex_block()           - JSON stdout "block" + exit 0
+|   +-- _gemini_block()          - JSON stdout "deny" + exit 0
 |   +-- ADAPTERS dict            - {name: {extract, block}}
 |
 +-- main()                       - dispatch via argv[1]
 ```
 
-Adding a new CLI takes two steps:
+Adding a new CLI:
 
 ```python
-def _newcli_extract(raw: str) -> str:
-    return json.loads(raw).get("prompt", "")
-
 def _newcli_block(msg: str) -> None:
-    # Use whatever blocking mechanism the CLI supports
     print(msg, file=sys.stderr)
     sys.exit(2)
 
-ADAPTERS["newcli"] = {"extract": _newcli_extract, "block": _newcli_block}
+ADAPTERS["newcli"] = {"extract": _json_prompt_extract, "block": _newcli_block}
 ```
 
-Then pass the CLI name: `python3 block_pleasantries.py newcli`
+Then: `python3 block_pleasantries.py newcli`
 
 ## Customizing the Blocklist
 
