@@ -41,19 +41,46 @@ The matcher normalizes input (lowercase, strip punctuation, collapse whitespace)
 | Claude Code | `UserPromptSubmit` | `~/.claude/settings.json` | exit 2 |
 | Codex CLI | `UserPromptSubmit` | `~/.codex/hooks.json` | JSON block |
 | Gemini CLI | `BeforeAgent` | `~/.gemini/settings.json` | JSON deny |
-| Kiro | `UserPromptSubmit` | `.kiro/hooks/*.json` | exit 2 |
-| Copilot Chat | `UserPromptSubmit` | `.github/hooks/*.json` | exit 2 |
-| Copilot CLI | `userPromptSubmitted` | `.github/hooks/*.json` | exit 2 |
-| Cursor | `beforeSubmitPrompt` | `.cursor/hooks.json` | exit 2 |
+| Cursor | `beforeSubmitPrompt` | `~/.cursor/hooks.json` | exit 2 |
+| Copilot Chat | `UserPromptSubmit` | `~/.copilot/hooks/` | exit 2 |
+| Copilot CLI | `userPromptSubmitted` | `~/.copilot/hooks/` | exit 2 |
+| Qwen Code | `UserPromptSubmit` | `~/.qwen/settings.json` | exit 2 |
+| Junie CLI | `UserPromptSubmit` | `~/.junie/config.json` | exit 2 |
 | Factory Droid | `UserPromptSubmit` | `~/.factory/hooks.json` | exit 2 |
 | Kimi Code | `UserPromptSubmit` | `~/.kimi-code/config.toml` | exit 2 |
-| Devin CLI | `UserPromptSubmit` | `.devin/hooks.v1.json` | exit 2 |
+| grok-cli | `UserPromptSubmit` | `~/.grok/user-settings.json` | exit 2 |
+| Kun | `UserPromptSubmit` | `~/.kun/data/config.json` | exit 2 |
+| Open Interpreter | `UserPromptSubmit` | `~/.openinterpreter/hooks.json` | exit 2 |
+| Kiro | `UserPromptSubmit` | `.kiro/hooks/*.json` (workspace) | exit 2 |
+| Devin CLI | `UserPromptSubmit` | `.devin/hooks.v1.json` (workspace) | exit 2 |
 
 ### Not supported (no hook system)
 
-CodeBuddy, OpenCode (archived), Aider, Kilo Code, Trae, Trae CN (unreleased), Hermes, Pi, OpenClaw, Amp (docs private), Google Antigravity (no prompt access in hooks), Agent Skills (not a specific tool).
+CodeBuddy, OpenCode (archived), Aider, Kilo Code, Trae, Trae CN (unreleased), Hermes, Pi, OpenClaw, Amp (docs private), Google Antigravity (no prompt access), Cline (SDK-only), oh-my-pi (SDK-only), Freebuff (no config), Command Code (no pre-prompt hook).
 
 ## Installation
+
+### Quick install (recommended)
+
+```bash
+python install.py
+```
+
+The installer will:
+1. Copy `block_pleasantries.py` to `~/.pleasantries/`
+2. Detect which AI coding CLIs are installed on your machine
+3. Let you select which ones to hook
+4. Merge the hook into each CLI's config (skips if already installed)
+
+To remove all hooks:
+
+```bash
+python install.py --uninstall
+```
+
+### Manual installation
+
+If you prefer to configure each CLI by hand:
 
 ### Claude Code
 

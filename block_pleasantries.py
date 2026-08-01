@@ -84,6 +84,28 @@ Supported CLIs and their hook config:
       }
     }
 
+  junie  - ~/.junie/config.json
+    {
+      "hooks": {
+        "UserPromptSubmit": [
+          { "hooks": [{ "type": "command",
+              "command": "python block_pleasantries.py junie",
+              "timeout": 10 }] }
+        ]
+      }
+    }
+
+  qwen  - ~/.qwen/settings.json (JSON)
+    {
+      "hooks": {
+        "UserPromptSubmit": [
+          { "hooks": [{ "type": "command",
+              "command": "python block_pleasantries.py qwen",
+              "timeout": 5000 }] }
+        ]
+      }
+    }
+
 Adding a new CLI:
   1. Write an extract function: _<cli>_extract(raw_stdin) -> prompt string
   2. Add an entry to ADAPTERS with the extract fn and the exit code that
@@ -151,8 +173,13 @@ def is_pleasantry(text: str) -> bool:
 
 
 def _json_prompt_extract(raw: str) -> str:
-    """Extract prompt from JSON stdin. Shared by all current adapters."""
+    """Extract prompt from JSON stdin. Shared by most adapters."""
     return json.loads(raw).get("prompt", "")
+
+
+def _grok_prompt_extract(raw: str) -> str:
+    """grok-cli uses 'user_prompt' instead of 'prompt'."""
+    return json.loads(raw).get("user_prompt", "")
 
 
 def _exit2_block(msg: str) -> None:
@@ -211,6 +238,26 @@ ADAPTERS: dict[str, dict] = {
         "block": _exit2_block,
     },
     "devin": {
+        "extract": _json_prompt_extract,
+        "block": _exit2_block,
+    },
+    "junie": {
+        "extract": _json_prompt_extract,
+        "block": _exit2_block,
+    },
+    "qwen": {
+        "extract": _json_prompt_extract,
+        "block": _exit2_block,
+    },
+    "grok": {
+        "extract": _grok_prompt_extract,
+        "block": _exit2_block,
+    },
+    "kun": {
+        "extract": _json_prompt_extract,
+        "block": _exit2_block,
+    },
+    "open-interpreter": {
         "extract": _json_prompt_extract,
         "block": _exit2_block,
     },
