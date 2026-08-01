@@ -5,12 +5,23 @@ Usage: python block_pleasantries.py <cli-name>
 
 Supported CLIs and their hook config:
 
-  claude  - .claude/settings.json or ~/.claude/settings.json
+  claude  - ~/.claude/settings.json (JSON)
     {
       "hooks": {
         "UserPromptSubmit": [
           { "hooks": [{ "type": "command",
               "command": "python block_pleasantries.py claude" }] }
+        ]
+      }
+    }
+
+  codex  - ~/.codex/hooks.json (JSON) + features.hooks = true in config.toml
+    {
+      "hooks": {
+        "UserPromptSubmit": [
+          { "hooks": [{ "type": "command",
+              "command": "python block_pleasantries.py codex",
+              "timeout": 5 }] }
         ]
       }
     }
@@ -78,21 +89,20 @@ def is_pleasantry(text: str) -> bool:
 # All adapters share the same block message on stderr.
 
 
-def _claude_extract(raw: str) -> str:
-    """Claude Code sends JSON on stdin with a 'prompt' key."""
+def _json_prompt_extract(raw: str) -> str:
+    """Extract prompt from JSON stdin. Used by Claude Code and Codex CLI."""
     return json.loads(raw).get("prompt", "")
 
 
 ADAPTERS: dict[str, dict] = {
     "claude": {
-        "extract": _claude_extract,
+        "extract": _json_prompt_extract,
         "exit_code": 2,
     },
-    # Example for a future CLI:
-    # "gemini": {
-    #     "extract": _gemini_extract,
-    #     "exit_code": 1,
-    # },
+    "codex": {
+        "extract": _json_prompt_extract,
+        "exit_code": 2,
+    },
 }
 
 

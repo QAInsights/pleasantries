@@ -30,7 +30,8 @@ The matcher normalizes input (lowercase, strip punctuation, collapse whitespace)
 
 | CLI | Hook Type | Config File | Status |
 |---|---|---|---|
-| Claude Code | `UserPromptSubmit` | `.claude/settings.json` | Supported |
+| Claude Code | `UserPromptSubmit` | `~/.claude/settings.json` | Supported |
+| Codex CLI | `UserPromptSubmit` | `~/.codex/hooks.json` + `config.toml` | Supported |
 | More coming | - | - | Planned |
 
 ## Installation
@@ -57,6 +58,36 @@ Add to `~/.claude/settings.json` (global) or `.claude/settings.json` (project-le
 }
 ```
 
+### Codex CLI
+
+**Step 1:** Enable hooks in `~/.codex/config.toml`:
+
+```toml
+[features]
+hooks = true
+```
+
+**Step 2:** Add to `~/.codex/hooks.json`:
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python /path/to/block_pleasantries.py codex",
+            "timeout": 5,
+            "statusMessage": "Checking prompt"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
 Replace `/path/to/` with the actual path to this repo.
 
 ### Requirements
@@ -71,15 +102,15 @@ The script separates core matching logic from CLI-specific I/O:
 ```
 block_pleasantries.py
 +-- Core matcher (CLI-agnostic)
-|   +-- PLEASANTRY_PATTERNS   - compiled regex
-|   +-- normalize()           - lowercase, strip punctuation
-|   +-- is_pleasantry()       - fullmatch check
+|   +-- PLEASANTRY_PATTERNS      - compiled regex
+|   +-- normalize()              - lowercase, strip punctuation
+|   +-- is_pleasantry()          - fullmatch check
 |
 +-- CLI adapters
-|   +-- _claude_extract()     - JSON stdin, "prompt" key
-|   +-- ADAPTERS dict         - {name: {extract, exit_code}}
+|   +-- _json_prompt_extract()   - shared JSON stdin parser (claude, codex)
+|   +-- ADAPTERS dict            - {name: {extract, exit_code}}
 |
-+-- main()                    - dispatch via argv[1]
++-- main()                       - dispatch via argv[1]
 ```
 
 Adding a new CLI takes two steps:
