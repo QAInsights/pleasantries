@@ -38,7 +38,8 @@ def _python_cmd() -> str:
 
 
 def _hook_command(cli_name: str) -> str:
-    return f"{_python_cmd()} {SCRIPT_PATH_STR} {cli_name}"
+    # Forward slashes work on all platforms and avoid TOML escape issues
+    return f"{_python_cmd()} {SCRIPT_PATH_STR.replace(chr(92), '/')} {cli_name}"
 
 
 # ---------------------------------------------------------------------------
