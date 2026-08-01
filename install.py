@@ -2,37 +2,38 @@
 """Interactive installer for the pleasantries pre-hook across AI coding CLIs.
 
 Usage:
-  python install.py              Install hooks (interactive)
+  python install.py              Install hooks (interactive TUI)
   python install.py --uninstall  Remove hooks from all configs
+
+Dependencies: pip install rich InquirerPy
 """
 
 import json
-import os
-import re
 import shutil
 import sys
 from pathlib import Path
+
+try:
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.text import Text
+    from InquirerPy import inquirer
+    from InquirerPy.base.control import Choice
+except ImportError:
+    print("Missing dependencies. Run: pip install rich InquirerPy")
+    sys.exit(1)
 
 HOME = Path.home()
 INSTALL_DIR = HOME / ".pleasantries"
 SCRIPT_NAME = "block_pleasantries.py"
 HOOK_MARKER = "block_pleasantries"
-
-# ---------------------------------------------------------------------------
-# CLI definitions
-# ---------------------------------------------------------------------------
-# Each entry:
-#   detect_dir  - directory whose existence means the CLI is installed
-#   config_path - config file to write the hook into
-#   hook_event  - the hook event name used by this CLI
-#   install()   - writes the hook into the config
-#   uninstall() - removes the hook from the config
-
 SCRIPT_PATH_STR = str(INSTALL_DIR / SCRIPT_NAME)
+
+console = Console()
 
 
 def _python_cmd() -> str:
-    """Return 'python3' on Unix, 'python' on Windows."""
     return "python" if sys.platform == "win32" else "python3"
 
 
@@ -40,7 +41,9 @@ def _hook_command(cli_name: str) -> str:
     return f"{_python_cmd()} {SCRIPT_PATH_STR} {cli_name}"
 
 
-# --- JSON config helpers ---
+# ---------------------------------------------------------------------------
+# JSON config helpers
+# ---------------------------------------------------------------------------
 
 
 def _load_json(path: Path) -> dict:
@@ -72,12 +75,9 @@ def _install_json_hook(
     timeout: int = 5,
     extra_fields: dict | None = None,
 ) -> None:
-    """Add a hook entry to a JSON config file under hooks.<event_name>[].hooks[]."""
     data = _load_json(config_path)
-
     hooks_root = data.setdefault(wrapper_key, {})
     event_list = hooks_root.setdefault(event_name, [])
-
     hook_entry = {
         "type": "command",
         "command": _hook_command(cli_name),
@@ -85,31 +85,23 @@ def _install_json_hook(
     }
     if extra_fields:
         hook_entry.update(extra_fields)
-
     event_list.append({"hooks": [hook_entry]})
     _save_json(config_path, data)
 
 
 def _uninstall_json_hook(config_path: Path, event_name: str) -> bool:
-    """Remove hook entries referencing block_pleasantries. Returns True if changed."""
     if not config_path.exists():
         return False
-
     data = _load_json(config_path)
     hooks_root = data.get("hooks", {})
     event_list = hooks_root.get(event_name, [])
     if not event_list:
         return False
-
     cleaned = []
     changed = False
     for group in event_list:
         group_hooks = group.get("hooks", [])
-        kept = [
-            h
-            for h in group_hooks
-            if HOOK_MARKER not in h.get("command", "")
-        ]
+        kept = [h for h in group_hooks if HOOK_MARKER not in h.get("command", "")]
         if len(kept) < len(group_hooks):
             changed = True
         if kept:
@@ -117,7 +109,6 @@ def _uninstall_json_hook(config_path: Path, event_name: str) -> bool:
             cleaned.append(group)
         elif not any(HOOK_MARKER in h.get("command", "") for h in group_hooks):
             cleaned.append(group)
-
     if changed:
         if cleaned:
             hooks_root[event_name] = cleaned
@@ -125,9 +116,6 @@ def _uninstall_json_hook(config_path: Path, event_name: str) -> bool:
             hooks_root.pop(event_name, None)
         _save_json(config_path, data)
     return changed
-
-
-# --- TOML helpers (string-based, no full parser needed) ---
 
 
 def _toml_has_hook(path: Path) -> bool:
@@ -144,9 +132,9 @@ def _toml_has_hook(path: Path) -> bool:
 def install_claude() -> str:
     path = HOME / ".claude" / "settings.json"
     if _json_has_hook(path):
-        return "already installed, skipped"
+        return "skip"
     _install_json_hook(path, "UserPromptSubmit", "claude")
-    return f"hook added to {path}"
+    return str(path)
 
 
 def uninstall_claude() -> bool:
@@ -156,62 +144,44 @@ def uninstall_claude() -> bool:
 def install_codex() -> str:
     hooks_path = HOME / ".codex" / "hooks.json"
     config_path = HOME / ".codex" / "config.toml"
-
     if _json_has_hook(hooks_path):
-        return "already installed, skipped"
-
-    # hooks.json
+        return "skip"
     data = _load_json(hooks_path)
     hooks_root = data.setdefault("hooks", {})
     event_list = hooks_root.setdefault("UserPromptSubmit", [])
-    hook_entry = {
+    event_list.append({"hooks": [{
         "type": "command",
         "command": _hook_command("codex"),
         "timeout": 5,
         "statusMessage": "Checking prompt",
-    }
-    event_list.append({"hooks": [hook_entry]})
+    }]})
     _save_json(hooks_path, data)
-
-    # config.toml: ensure features.hooks = true
     if config_path.exists():
         toml_text = config_path.read_text(encoding="utf-8")
-        if "hooks" not in toml_text.split("[features]")[1].split("[")[0] if "[features]" in toml_text else True:
-            if "[features]" in toml_text:
-                toml_text = toml_text.replace("[features]", "[features]\nhooks = true", 1)
-            else:
-                toml_text += "\n[features]\nhooks = true\n"
+        if "[features]" in toml_text and "hooks" not in toml_text.split("[features]")[1].split("[")[0]:
+            toml_text = toml_text.replace("[features]", "[features]\nhooks = true", 1)
             config_path.write_text(toml_text, encoding="utf-8")
-
-    return f"hook added to {hooks_path}"
+        elif "[features]" not in toml_text:
+            config_path.write_text(toml_text + "\n[features]\nhooks = true\n", encoding="utf-8")
+    return str(hooks_path)
 
 
 def uninstall_codex() -> bool:
-    changed = _uninstall_json_hook(HOME / ".codex" / "hooks.json", "UserPromptSubmit")
-    # Note: we don't remove features.hooks=true since other hooks may use it
-    return changed
+    return _uninstall_json_hook(HOME / ".codex" / "hooks.json", "UserPromptSubmit")
 
 
 def install_gemini() -> str:
     path = HOME / ".gemini" / "settings.json"
     if _json_has_hook(path):
-        return "already installed, skipped"
-    _install_json_hook(
-        path,
-        "BeforeAgent",
-        "gemini",
-        timeout=5000,
-        extra_fields={"name": "block-pleasantries"},
-    )
-    # Add matcher to the group
+        return "skip"
+    _install_json_hook(path, "BeforeAgent", "gemini", timeout=5000, extra_fields={"name": "block-pleasantries"})
     data = _load_json(path)
-    groups = data.get("hooks", {}).get("BeforeAgent", [])
-    for g in groups:
+    for g in data.get("hooks", {}).get("BeforeAgent", []):
         for h in g.get("hooks", []):
             if HOOK_MARKER in h.get("command", ""):
                 g["matcher"] = "*"
     _save_json(path, data)
-    return f"hook added to {path}"
+    return str(path)
 
 
 def uninstall_gemini() -> bool:
@@ -221,18 +191,15 @@ def uninstall_gemini() -> bool:
 def install_cursor() -> str:
     path = HOME / ".cursor" / "hooks.json"
     if _json_has_hook(path):
-        return "already installed, skipped"
-
+        return "skip"
     data = _load_json(path)
     data.setdefault("version", 1)
-    hooks_root = data.setdefault("hooks", {})
-    event_list = hooks_root.setdefault("beforeSubmitPrompt", [])
-    event_list.append({
+    data.setdefault("hooks", {}).setdefault("beforeSubmitPrompt", []).append({
         "command": _hook_command("cursor"),
         "timeout": 5,
     })
     _save_json(path, data)
-    return f"hook added to {path}"
+    return str(path)
 
 
 def uninstall_cursor() -> bool:
@@ -250,25 +217,18 @@ def uninstall_cursor() -> bool:
 
 
 def install_copilot() -> str:
-    hooks_dir = HOME / ".copilot" / "hooks"
-    path = hooks_dir / "pleasantries.json"
+    path = HOME / ".copilot" / "hooks" / "pleasantries.json"
     if path.exists() and _json_has_hook(path):
-        return "already installed, skipped"
-
-    data = {
+        return "skip"
+    _save_json(path, {
         "version": 1,
-        "hooks": {
-            "UserPromptSubmit": [
-                {
-                    "type": "command",
-                    "command": _hook_command("copilot-chat"),
-                    "timeout": 5,
-                }
-            ]
-        },
-    }
-    _save_json(path, data)
-    return f"hook created at {path}"
+        "hooks": {"UserPromptSubmit": [{
+            "type": "command",
+            "command": _hook_command("copilot-chat"),
+            "timeout": 5,
+        }]},
+    })
+    return str(path)
 
 
 def uninstall_copilot() -> bool:
@@ -282,9 +242,9 @@ def uninstall_copilot() -> bool:
 def install_qwen() -> str:
     path = HOME / ".qwen" / "settings.json"
     if _json_has_hook(path):
-        return "already installed, skipped"
+        return "skip"
     _install_json_hook(path, "UserPromptSubmit", "qwen", timeout=5000)
-    return f"hook added to {path}"
+    return str(path)
 
 
 def uninstall_qwen() -> bool:
@@ -294,9 +254,9 @@ def uninstall_qwen() -> bool:
 def install_junie() -> str:
     path = HOME / ".junie" / "config.json"
     if _json_has_hook(path):
-        return "already installed, skipped"
+        return "skip"
     _install_json_hook(path, "UserPromptSubmit", "junie", timeout=10)
-    return f"hook added to {path}"
+    return str(path)
 
 
 def uninstall_junie() -> bool:
@@ -306,9 +266,9 @@ def uninstall_junie() -> bool:
 def install_factory_droid() -> str:
     path = HOME / ".factory" / "hooks.json"
     if _json_has_hook(path):
-        return "already installed, skipped"
+        return "skip"
     _install_json_hook(path, "UserPromptSubmit", "factory-droid")
-    return f"hook added to {path}"
+    return str(path)
 
 
 def uninstall_factory_droid() -> bool:
@@ -318,21 +278,14 @@ def uninstall_factory_droid() -> bool:
 def install_kimi_code() -> str:
     path = HOME / ".kimi-code" / "config.toml"
     if _toml_has_hook(path):
-        return "already installed, skipped"
-
-    block = f"""
-[[hooks]]
-event = "UserPromptSubmit"
-command = "{_hook_command('kimi-code')}"
-timeout = 5
-"""
+        return "skip"
+    block = f'\n[[hooks]]\nevent = "UserPromptSubmit"\ncommand = "{_hook_command("kimi-code")}"\ntimeout = 5\n'
     if path.exists():
-        existing = path.read_text(encoding="utf-8")
-        path.write_text(existing + block, encoding="utf-8")
+        path.write_text(path.read_text(encoding="utf-8") + block, encoding="utf-8")
     else:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(block.lstrip(), encoding="utf-8")
-    return f"hook appended to {path}"
+    return str(path)
 
 
 def uninstall_kimi_code() -> bool:
@@ -342,24 +295,17 @@ def uninstall_kimi_code() -> bool:
     text = path.read_text(encoding="utf-8")
     if HOOK_MARKER not in text:
         return False
-    # Remove the [[hooks]] block containing our marker
     lines = text.split("\n")
-    result = []
-    skip = False
-    for line in lines:
+    result, skip = [], False
+    for i, line in enumerate(lines):
         if line.strip() == "[[hooks]]":
-            # Look ahead to see if this block contains our marker
-            idx = lines.index(line)
-            block_text = "\n".join(lines[idx : idx + 5])
-            if HOOK_MARKER in block_text:
+            if HOOK_MARKER in "\n".join(lines[i : i + 5]):
                 skip = True
                 continue
         if skip:
-            if line.strip().startswith("[[") or (line.strip() == "" and result and result[-1].strip() == ""):
+            if line.strip().startswith("[["):
                 skip = False
-                if line.strip().startswith("[["):
-                    result.append(line)
-                continue
+                result.append(line)
             continue
         result.append(line)
     path.write_text("\n".join(result), encoding="utf-8")
@@ -369,9 +315,9 @@ def uninstall_kimi_code() -> bool:
 def install_grok() -> str:
     path = HOME / ".grok" / "user-settings.json"
     if _json_has_hook(path):
-        return "already installed, skipped"
+        return "skip"
     _install_json_hook(path, "UserPromptSubmit", "grok", timeout=10)
-    return f"hook added to {path}"
+    return str(path)
 
 
 def uninstall_grok() -> bool:
@@ -381,17 +327,15 @@ def uninstall_grok() -> bool:
 def install_kun() -> str:
     path = HOME / ".kun" / "data" / "config.json"
     if _json_has_hook(path):
-        return "already installed, skipped"
-
+        return "skip"
     data = _load_json(path)
-    hooks_list = data.setdefault("hooks", [])
-    hooks_list.append({
+    data.setdefault("hooks", []).append({
         "phase": "UserPromptSubmit",
         "command": _hook_command("kun"),
         "timeoutMs": 5000,
     })
     _save_json(path, data)
-    return f"hook added to {path}"
+    return str(path)
 
 
 def uninstall_kun() -> bool:
@@ -411,15 +355,13 @@ def uninstall_kun() -> bool:
 def install_open_interpreter() -> str:
     path = HOME / ".openinterpreter" / "hooks.json"
     if _json_has_hook(path):
-        return "already installed, skipped"
+        return "skip"
     _install_json_hook(path, "UserPromptSubmit", "open-interpreter", timeout=10)
-    return f"hook added to {path}"
+    return str(path)
 
 
 def uninstall_open_interpreter() -> bool:
-    return _uninstall_json_hook(
-        HOME / ".openinterpreter" / "hooks.json", "UserPromptSubmit"
-    )
+    return _uninstall_json_hook(HOME / ".openinterpreter" / "hooks.json", "UserPromptSubmit")
 
 
 # ---------------------------------------------------------------------------
@@ -427,223 +369,176 @@ def uninstall_open_interpreter() -> bool:
 # ---------------------------------------------------------------------------
 
 CLI_REGISTRY = [
-    {
-        "name": "Claude Code",
-        "id": "claude",
-        "detect_dir": HOME / ".claude",
-        "install": install_claude,
-        "uninstall": uninstall_claude,
-    },
-    {
-        "name": "Codex CLI",
-        "id": "codex",
-        "detect_dir": HOME / ".codex",
-        "install": install_codex,
-        "uninstall": uninstall_codex,
-    },
-    {
-        "name": "Gemini CLI",
-        "id": "gemini",
-        "detect_dir": HOME / ".gemini",
-        "install": install_gemini,
-        "uninstall": uninstall_gemini,
-    },
-    {
-        "name": "Cursor",
-        "id": "cursor",
-        "detect_dir": HOME / ".cursor",
-        "install": install_cursor,
-        "uninstall": uninstall_cursor,
-    },
-    {
-        "name": "Copilot Chat",
-        "id": "copilot",
-        "detect_dir": HOME / ".copilot",
-        "install": install_copilot,
-        "uninstall": uninstall_copilot,
-    },
-    {
-        "name": "Qwen Code",
-        "id": "qwen",
-        "detect_dir": HOME / ".qwen",
-        "install": install_qwen,
-        "uninstall": uninstall_qwen,
-    },
-    {
-        "name": "Junie CLI",
-        "id": "junie",
-        "detect_dir": HOME / ".junie",
-        "install": install_junie,
-        "uninstall": uninstall_junie,
-    },
-    {
-        "name": "Factory Droid",
-        "id": "factory-droid",
-        "detect_dir": HOME / ".factory",
-        "install": install_factory_droid,
-        "uninstall": uninstall_factory_droid,
-    },
-    {
-        "name": "Kimi Code",
-        "id": "kimi-code",
-        "detect_dir": HOME / ".kimi-code",
-        "install": install_kimi_code,
-        "uninstall": uninstall_kimi_code,
-    },
-    {
-        "name": "grok-cli",
-        "id": "grok",
-        "detect_dir": HOME / ".grok",
-        "install": install_grok,
-        "uninstall": uninstall_grok,
-    },
-    {
-        "name": "Kun",
-        "id": "kun",
-        "detect_dir": HOME / ".kun",
-        "install": install_kun,
-        "uninstall": uninstall_kun,
-    },
-    {
-        "name": "Open Interpreter",
-        "id": "open-interpreter",
-        "detect_dir": HOME / ".openinterpreter",
-        "install": install_open_interpreter,
-        "uninstall": uninstall_open_interpreter,
-    },
+    {"name": "Claude Code", "id": "claude", "detect_dir": HOME / ".claude", "install": install_claude, "uninstall": uninstall_claude},
+    {"name": "Codex CLI", "id": "codex", "detect_dir": HOME / ".codex", "install": install_codex, "uninstall": uninstall_codex},
+    {"name": "Gemini CLI", "id": "gemini", "detect_dir": HOME / ".gemini", "install": install_gemini, "uninstall": uninstall_gemini},
+    {"name": "Cursor", "id": "cursor", "detect_dir": HOME / ".cursor", "install": install_cursor, "uninstall": uninstall_cursor},
+    {"name": "Copilot Chat", "id": "copilot", "detect_dir": HOME / ".copilot", "install": install_copilot, "uninstall": uninstall_copilot},
+    {"name": "Qwen Code", "id": "qwen", "detect_dir": HOME / ".qwen", "install": install_qwen, "uninstall": uninstall_qwen},
+    {"name": "Junie CLI", "id": "junie", "detect_dir": HOME / ".junie", "install": install_junie, "uninstall": uninstall_junie},
+    {"name": "Factory Droid", "id": "factory-droid", "detect_dir": HOME / ".factory", "install": install_factory_droid, "uninstall": uninstall_factory_droid},
+    {"name": "Kimi Code", "id": "kimi-code", "detect_dir": HOME / ".kimi-code", "install": install_kimi_code, "uninstall": uninstall_kimi_code},
+    {"name": "grok-cli", "id": "grok", "detect_dir": HOME / ".grok", "install": install_grok, "uninstall": uninstall_grok},
+    {"name": "Kun", "id": "kun", "detect_dir": HOME / ".kun", "install": install_kun, "uninstall": uninstall_kun},
+    {"name": "Open Interpreter", "id": "open-interpreter", "detect_dir": HOME / ".openinterpreter", "install": install_open_interpreter, "uninstall": uninstall_open_interpreter},
 ]
 
-# Workspace-only CLIs (detected but not globally installable)
 WORKSPACE_ONLY = ["Kiro (.kiro/hooks/)", "Devin (.devin/hooks.v1.json)"]
 
 
 # ---------------------------------------------------------------------------
-# Main
+# TUI
 # ---------------------------------------------------------------------------
+
+BANNER = r"""
+ ____  _                       _
+|  _ \| | ___  __ _ ___  ___ _ __(_) ___  ___
+| |_) | |/ _ \/ _` / __|/ _ \ '__| |/ _ \/ __|
+|  __/| |  __/ (_| \__ \  __/ |  | |  __/\__ \
+|_|   |_|\___|\__,_|___/\___|_|  |_|\___||___/
+"""
+
+
+def show_banner() -> None:
+    banner = Text(BANNER, style="bold cyan")
+    console.print(Panel(banner, border_style="cyan", expand=False))
+    console.print("  [dim]Block pleasantry-only prompts across AI coding CLIs[/dim]\n")
+
+
+def detect_and_display() -> list[dict]:
+    detected = [cli for cli in CLI_REGISTRY if cli["detect_dir"].is_dir()]
+
+    table = Table(show_header=True, header_style="bold magenta", box=None, pad_edge=False)
+    table.add_column("", width=4)
+    table.add_column("CLI", min_width=20)
+    table.add_column("Config dir", style="dim")
+    table.add_column("Status", justify="right")
+
+    for cli in detected:
+        hook_path = cli["detect_dir"]
+        already = False
+        # Quick check if hook already exists in any config under this dir
+        for f in hook_path.rglob("*"):
+            if f.is_file() and f.suffix in (".json", ".toml"):
+                try:
+                    if HOOK_MARKER in f.read_text(encoding="utf-8"):
+                        already = True
+                        break
+                except (OSError, UnicodeDecodeError):
+                    pass
+
+        status = "[yellow]installed[/yellow]" if already else "[green]ready[/green]"
+        table.add_row("", cli["name"], str(cli["detect_dir"]), status)
+
+    for ws in WORKSPACE_ONLY:
+        table.add_row("", ws, "[dim]workspace-only[/dim]", "[dim]manual[/dim]")
+
+    console.print(table)
+    console.print()
+    return detected
+
+
+def select_clis(detected: list[dict]) -> list[dict]:
+    if not detected:
+        console.print("[red]No supported AI coding CLIs detected.[/red]")
+        return []
+
+    choices = [
+        Choice(value=cli, name=f"{cli['name']}  ({cli['detect_dir']})")
+        for cli in detected
+    ]
+
+    selected = inquirer.checkbox(
+        message="Select CLIs to install the hook:",
+        choices=choices,
+        cycle=True,
+        instruction="(space to toggle, enter to confirm)",
+        long_instruction="Arrow keys to navigate, space to toggle, enter to confirm.",
+        validate=lambda result: len(result) > 0,
+        invalid_message="Select at least one CLI.",
+    ).execute()
+
+    return selected
 
 
 def copy_script() -> None:
-    """Copy block_pleasantries.py to ~/.pleasantries/."""
     src = Path(__file__).parent / SCRIPT_NAME
     if not src.exists():
-        print(f"Error: {src} not found. Run this from the pleasantries repo.")
+        console.print(f"[red]Error:[/red] {src} not found. Run this from the pleasantries repo.")
         sys.exit(1)
-
     INSTALL_DIR.mkdir(parents=True, exist_ok=True)
-    dst = INSTALL_DIR / SCRIPT_NAME
-    shutil.copy2(src, dst)
-    print(f"  Script copied to {dst}")
-
-
-def detect_clis() -> list[dict]:
-    """Return list of detected CLIs."""
-    return [cli for cli in CLI_REGISTRY if cli["detect_dir"].is_dir()]
+    shutil.copy2(src, INSTALL_DIR / SCRIPT_NAME)
 
 
 def do_install() -> None:
-    print()
-    print("Pleasantries Hook Installer")
-    print("=" * 40)
-    print()
+    show_banner()
 
-    # Step 1: Copy script
-    print("[1/3] Installing hook script...")
-    copy_script()
-    print()
+    with console.status("[cyan]Copying hook script...[/cyan]", spinner="dots"):
+        copy_script()
+    console.print(f"  [green]>[/green] Script installed to [bold]{INSTALL_DIR / SCRIPT_NAME}[/bold]\n")
 
-    # Step 2: Detect
-    print("[2/3] Scanning for installed AI coding CLIs...")
-    print()
-    detected = detect_clis()
+    with console.status("[cyan]Scanning for installed CLIs...[/cyan]", spinner="dots"):
+        detected = detect_and_display()
 
     if not detected:
-        print("  No supported AI coding CLIs detected.")
-        print(f"  Looked for config dirs in {HOME}")
         return
 
-    for i, cli in enumerate(detected, 1):
-        print(f"  [{i}] {cli['name']:<20} ({cli['detect_dir']})")
-
-    print()
-    for ws in WORKSPACE_ONLY:
-        print(f"  [-] {ws:<20} (workspace-only, use per-project)")
-
-    print()
-
-    # Step 3: Select
-    choice = input("Select CLIs [1-{0}, a=all, q=quit]: ".format(len(detected))).strip()
-
-    if choice.lower() == "q":
-        print("Cancelled.")
-        return
-
-    if choice.lower() == "a":
-        selected = detected
-    else:
-        indices = []
-        for part in choice.replace(",", " ").split():
-            try:
-                idx = int(part) - 1
-                if 0 <= idx < len(detected):
-                    indices.append(idx)
-            except ValueError:
-                print(f"  Invalid selection: {part}")
-        selected = [detected[i] for i in indices]
-
+    selected = select_clis(detected)
     if not selected:
-        print("Nothing selected.")
         return
 
-    # Step 4: Install
-    print()
-    print("[3/3] Installing hooks...")
-    print()
+    console.print()
 
-    installed = 0
-    skipped = 0
+    results = {"installed": [], "skipped": []}
     for cli in selected:
-        result = cli["install"]()
-        if "skipped" in result:
-            print(f"  \u2298 {cli['name']:<20} {result}")
-            skipped += 1
-        else:
-            print(f"  \u2713 {cli['name']:<20} {result}")
-            installed += 1
+        with console.status(f"[cyan]Installing {cli['name']}...[/cyan]", spinner="dots"):
+            result = cli["install"]()
 
-    print()
-    print(f"Done! {installed} installed, {skipped} skipped.")
-    print()
-    print("Restart your CLI sessions for hooks to take effect.")
+        if result == "skip":
+            console.print(f"  [yellow]>[/yellow] {cli['name']:<20} [yellow]already installed, skipped[/yellow]")
+            results["skipped"].append(cli["name"])
+        else:
+            console.print(f"  [green]>[/green] {cli['name']:<20} [green]{result}[/green]")
+            results["installed"].append(cli["name"])
+
+    console.print()
+
+    summary = Text()
+    summary.append(f"{len(results['installed'])} installed", style="bold green")
+    if results["skipped"]:
+        summary.append(f"  |  {len(results['skipped'])} skipped", style="yellow")
+    console.print(Panel(summary, title="Done", border_style="green", expand=False))
+    console.print("\n  [dim]Restart your CLI sessions for hooks to take effect.[/dim]\n")
 
 
 def do_uninstall() -> None:
-    print()
-    print("Pleasantries Hook Uninstaller")
-    print("=" * 40)
-    print()
+    show_banner()
+    console.print("  [bold red]Uninstall mode[/bold red]\n")
 
     removed = 0
     for cli in CLI_REGISTRY:
         try:
             if cli["uninstall"]():
-                print(f"  \u2713 {cli['name']:<20} hook removed")
+                console.print(f"  [green]>[/green] {cli['name']:<20} [green]hook removed[/green]")
                 removed += 1
         except Exception as e:
-            print(f"  ! {cli['name']:<20} error: {e}")
+            console.print(f"  [red]![/red] {cli['name']:<20} [red]error: {e}[/red]")
 
-    # Optionally remove the script
-    script_path = INSTALL_DIR / SCRIPT_NAME
-    if script_path.exists():
-        answer = input(f"\nRemove {INSTALL_DIR}? [y/N]: ").strip().lower()
-        if answer == "y":
+    if INSTALL_DIR.exists():
+        remove = inquirer.confirm(
+            message=f"Remove {INSTALL_DIR}?",
+            default=False,
+        ).execute()
+        if remove:
             shutil.rmtree(INSTALL_DIR)
-            print(f"  Removed {INSTALL_DIR}")
+            console.print(f"  [green]>[/green] Removed {INSTALL_DIR}")
 
-    print()
+    console.print()
     if removed:
-        print(f"Done! {removed} hooks removed.")
+        console.print(Panel(Text(f"{removed} hooks removed", style="bold green"), title="Done", border_style="green", expand=False))
     else:
-        print("No hooks found to remove.")
+        console.print(Panel(Text("No hooks found", style="yellow"), title="Done", border_style="yellow", expand=False))
+    console.print()
 
 
 def main() -> None:
