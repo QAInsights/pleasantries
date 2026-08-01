@@ -84,9 +84,11 @@ def is_pleasantry(text: str) -> bool:
 # ---------------------------------------------------------------------------
 # Each adapter provides:
 #   extract(raw) -> str   : pull the user prompt out of raw stdin
-#   exit_code    -> int   : process exit code that means "block this prompt"
+#   block(msg)   -> None  : signal "block this prompt" to the CLI
 #
-# All adapters share the same block message on stderr.
+# Blocking mechanisms differ per CLI:
+#   claude - exit code 2 + stderr message
+#   codex  - JSON stdout {"decision": "block", "reason": ...} + exit code 0
 
 
 def _json_prompt_extract(raw: str) -> str:
@@ -94,14 +96,26 @@ def _json_prompt_extract(raw: str) -> str:
     return json.loads(raw).get("prompt", "")
 
 
+def _claude_block(msg: str) -> None:
+    """Claude Code: stderr message + exit code 2."""
+    print(msg, file=sys.stderr)
+    sys.exit(2)
+
+
+def _codex_block(msg: str) -> None:
+    """Codex CLI: JSON decision on stdout + exit code 0."""
+    json.dump({"decision": "block", "reason": msg}, sys.stdout)
+    sys.exit(0)
+
+
 ADAPTERS: dict[str, dict] = {
     "claude": {
         "extract": _json_prompt_extract,
-        "exit_code": 2,
+        "block": _claude_block,
     },
     "codex": {
         "extract": _json_prompt_extract,
-        "exit_code": 2,
+        "block": _codex_block,
     },
 }
 
@@ -133,12 +147,11 @@ def main() -> None:
         sys.exit(0)
 
     if is_pleasantry(prompt):
-        print(
+        msg = (
             f'Blocked: "{prompt.strip()}" is a pleasantry, not a task. '
-            "Send a real prompt with something for the AI to do.",
-            file=sys.stderr,
+            "Send a real prompt with something for the AI to do."
         )
-        sys.exit(adapter["exit_code"])
+        adapter["block"](msg)
 
     sys.exit(0)
 

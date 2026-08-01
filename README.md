@@ -9,9 +9,16 @@ AI coding assistants are task tools, not chat buddies. Every "hello" wastes a mo
 ## How It Works
 
 ```
-You type "hi" --> Hook reads prompt --> Regex fullmatch --> Exit code 2 --> Prompt blocked
-You type "fix auth bug" --> Hook reads prompt --> No match --> Exit code 0 --> Prompt proceeds
+You type "hi" --> Hook reads prompt --> Regex fullmatch --> Blocked
+You type "fix auth bug" --> Hook reads prompt --> No match --> Prompt proceeds
 ```
+
+Each CLI has its own blocking mechanism:
+
+| CLI | Block method |
+|---|---|
+| Claude Code | stderr message + exit code 2 |
+| Codex CLI | JSON stdout `{"decision": "block", "reason": "..."}` + exit code 0 |
 
 The matcher normalizes input (lowercase, strip punctuation, collapse whitespace) and checks if the **entire** prompt is a pleasantry. Prompts that *contain* pleasantry words but include a real task pass through fine:
 
@@ -48,7 +55,7 @@ Add to `~/.claude/settings.json` (global) or `.claude/settings.json` (project-le
         "hooks": [
           {
             "type": "command",
-            "command": "python /path/to/block_pleasantries.py claude",
+            "command": "python3 /path/to/block_pleasantries.py claude",
             "timeout": 5
           }
         ]
@@ -77,7 +84,7 @@ hooks = true
         "hooks": [
           {
             "type": "command",
-            "command": "python /path/to/block_pleasantries.py codex",
+            "command": "python3 /path/to/block_pleasantries.py codex",
             "timeout": 5,
             "statusMessage": "Checking prompt"
           }
@@ -90,10 +97,18 @@ hooks = true
 
 Replace `/path/to/` with the actual path to this repo.
 
+**Windows note:** Use `python` instead of `python3`, and add a `commandWindows` field with the full path to `python.exe`:
+
+```json
+"command": "python C:/Users/you/gits/pleasantries/block_pleasantries.py codex",
+"commandWindows": "C:\\Users\\you\\scoop\\apps\\python\\current\\python.exe C:\\Users\\you\\gits\\pleasantries\\block_pleasantries.py codex"
+```
+
 ### Requirements
 
 - Python 3.10+
 - No external dependencies (stdlib only: `json`, `re`, `sys`)
+- Works on macOS, Linux, and Windows
 
 ## Multi-CLI Architecture
 
@@ -107,8 +122,10 @@ block_pleasantries.py
 |   +-- is_pleasantry()          - fullmatch check
 |
 +-- CLI adapters
-|   +-- _json_prompt_extract()   - shared JSON stdin parser (claude, codex)
-|   +-- ADAPTERS dict            - {name: {extract, exit_code}}
+|   +-- _json_prompt_extract()   - shared JSON stdin parser
+|   +-- _claude_block()          - stderr + exit code 2
+|   +-- _codex_block()           - JSON stdout decision + exit code 0
+|   +-- ADAPTERS dict            - {name: {extract, block}}
 |
 +-- main()                       - dispatch via argv[1]
 ```
@@ -117,13 +134,17 @@ Adding a new CLI takes two steps:
 
 ```python
 def _newcli_extract(raw: str) -> str:
-    """Parse the new CLI's hook payload."""
     return json.loads(raw).get("prompt", "")
 
-ADAPTERS["newcli"] = {"extract": _newcli_extract, "exit_code": 1}
+def _newcli_block(msg: str) -> None:
+    # Use whatever blocking mechanism the CLI supports
+    print(msg, file=sys.stderr)
+    sys.exit(2)
+
+ADAPTERS["newcli"] = {"extract": _newcli_extract, "block": _newcli_block}
 ```
 
-Then pass the CLI name: `python block_pleasantries.py newcli`
+Then pass the CLI name: `python3 block_pleasantries.py newcli`
 
 ## Customizing the Blocklist
 
