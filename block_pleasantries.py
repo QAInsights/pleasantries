@@ -182,6 +182,14 @@ def _grok_prompt_extract(raw: str) -> str:
     return json.loads(raw).get("user_prompt", "")
 
 
+def _kimi_prompt_extract(raw: str) -> str:
+    """Kimi Code sends prompt as an array: [{"type": "text", "text": "..."}]."""
+    prompt = json.loads(raw).get("prompt", "")
+    if isinstance(prompt, list):
+        return " ".join(p.get("text", "") for p in prompt if p.get("type") == "text")
+    return prompt
+
+
 def _exit2_block(msg: str) -> None:
     """stderr message + exit code 2. Used by claude, kiro, copilot-chat, copilot-cli, cursor."""
     print(msg, file=sys.stderr)
@@ -234,7 +242,7 @@ ADAPTERS: dict[str, dict] = {
         "block": _exit2_block,
     },
     "kimi-code": {
-        "extract": _json_prompt_extract,
+        "extract": _kimi_prompt_extract,
         "block": _exit2_block,
     },
     "devin": {
