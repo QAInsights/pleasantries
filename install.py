@@ -34,7 +34,15 @@ console = Console()
 
 
 def _python_cmd() -> str:
-    return "python" if sys.platform == "win32" else "python3"
+    """Return full python path on Windows, python3 elsewhere."""
+    if sys.platform == "win32":
+        # Use full path to avoid shell resolution issues (scoop, venv, etc.)
+        import shutil as _shutil
+        py = _shutil.which("python")
+        if py:
+            return py.replace("\\", "/")
+        return "python"
+    return "python3"
 
 
 def _hook_command(cli_name: str) -> str:
